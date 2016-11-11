@@ -12,7 +12,7 @@ def run_parser(url, output):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("A parser for zappos")
     parser.add_argument('-o', '--output',
-                        help="The output directory to place images in",
+                        help="The output dir to place images in",
                         required=True)
     parser.add_argument('-u', '--url', help='URL to start with', required=True)
 

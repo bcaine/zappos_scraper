@@ -4,22 +4,37 @@ from bs4 import BeautifulSoup
 import urllib
 import re
 
+from redis import Redis
+from rq import Queue
+
+from parse_zappos_products import parse_product_page
+
 class ZapposScraper():
 
-    def __init__(self, url, output_file):
+    def __init__(self, url, output_dir):
         self.base_url = 'http://' + ''.join(url.split('/')[1:-1])
         self.url = url
-        self.output_file = output_file
+        self.output_dir = output_dir
 
     def parse(self):
+        # Set up an RQ connection
+        q = Queue(connection=Redis())
+
+        urls = set([])
         r = urllib.urlopen(self.url).read()
         soup = BeautifulSoup(r)
-        with open(self.output_file, 'w') as f:
-            for cat_url in self._get_categories(soup, "Landing-Category"):
-                for page_url in self._get_pages(cat_url):
-                    for url in self._get_product_urls(page_url):
-                        f.write(url + '\n')
-
+        for cat_url in self._get_categories(soup, "Landing-Category"):
+            print(cat_url)
+            for page_url in self._get_pages(cat_url):
+                print("    ", page_url)
+                for product_url in self._get_product_urls(page_url):
+                    print("        ", product_url)
+                    # Add to the queue if new
+                    if product_url not in urls:
+                        job = q.enqueue(parse_product_page, 
+                                        self.output_dir, 
+                                        self.base_url, 
+                                        product_url)
 
     def _get_categories(self, soup, class_name):
         """Given a soup parsing, find the sub-categories we want to
@@ -41,22 +56,23 @@ class ZapposScraper():
         """For each category, go through each page and create a list
         of product pages
         """
-        pattern = re.compile(".*secondary.*")
+        #pattern = re.compile(".*pager\w2.*")
         page_url = url
-
+        idx = 1
         while True:
             # Parse page
             r = urllib.urlopen(page_url).read()
             soup = BeautifulSoup(r)
 
             # Find next page link (if there isn't one, exit)
-            next_page = soup.find('a', class_=pattern)
+            next_page = soup.find('a', class_="btn secondary arrow pager {}".format(idx))
             if not next_page:
                 break
 
             # Save the next page to both parse and return
             page_url = "{}{}".format(self.base_url, next_page.get('href'))
             yield page_url
+            idx += 1
 
 
     def _get_product_urls(self, url):
@@ -75,5 +91,5 @@ class ZapposScraper():
         for product in soup.find_all('a', class_=re.compile(".*product-.*")):
             product_url = product.get('href')
             if product_url:
-                urls.append("{}{}".format(self.base_url, product_url))
+                urls.append(product_url)
         return urls
